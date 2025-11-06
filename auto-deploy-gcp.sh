@@ -148,6 +148,57 @@ echo ""
 echo "Note: All gcloud commands will use project: $PROJECT_ID"
 echo ""
 
+# Step 1: Configure firewall rules (always do this, regardless of VM existence)
+echo "Step 1: Checking/creating network..."
+# Check if default network exists, create if not
+if ! gcloud compute networks describe default --project=$PROJECT_ID &>/dev/null; then
+    echo "Creating default network..."
+    gcloud compute networks create default \
+        --subnet-mode=auto \
+        --project=$PROJECT_ID
+    echo "✓ Default network created"
+else
+    echo "✓ Default network exists"
+fi
+echo ""
+
+echo "Step 1b: Configuring firewall rules..."
+# Create SSH firewall rule if it doesn't exist
+if ! gcloud compute firewall-rules describe allow-ssh --project=$PROJECT_ID &>/dev/null; then
+    echo "Creating SSH firewall rule..."
+    gcloud compute firewall-rules create allow-ssh \
+        --allow tcp:22 \
+        --source-ranges 0.0.0.0/0 \
+        --description "Allow SSH from anywhere" \
+        --project=$PROJECT_ID
+    echo "✓ SSH firewall rule created"
+else
+    echo "✓ SSH firewall rule exists"
+fi
+
+# Always update HTTP firewall rule with current detected IP
+FIREWALL_RULE="allow-gemini-agent-http"
+echo "  Detected source IP: $USER_IP"
+echo "  Source ranges: $SOURCE_RANGES"
+if ! gcloud compute firewall-rules describe $FIREWALL_RULE --project=$PROJECT_ID &>/dev/null; then
+    echo "Creating HTTP firewall rule (port 80)..."
+    gcloud compute firewall-rules create $FIREWALL_RULE \
+        --allow tcp:80 \
+        --source-ranges "$SOURCE_RANGES" \
+        --target-tags http-server \
+        --description "Allow HTTP traffic to Gemini Agent" \
+        --project=$PROJECT_ID
+    echo "✓ HTTP firewall rule created"
+else
+    echo "✓ HTTP firewall rule exists"
+    echo "  Updating source ranges to: $SOURCE_RANGES"
+    gcloud compute firewall-rules update $FIREWALL_RULE \
+        --source-ranges "$SOURCE_RANGES" \
+        --project=$PROJECT_ID
+    echo "✓ Firewall rule updated with detected IP: $USER_IP"
+fi
+echo ""
+
 # Check if VM already exists
 if gcloud compute instances describe $VM_NAME --zone=$ZONE --project=$PROJECT_ID &>/dev/null; then
     echo "⚠️  VM $VM_NAME already exists. Skipping creation."
@@ -159,54 +210,6 @@ fi
 
 # Create VM if it doesn't exist
 if [ "$EXISTING_VM" = false ]; then
-    echo "Step 1: Checking/creating network..."
-    # Check if default network exists, create if not
-    if ! gcloud compute networks describe default --project=$PROJECT_ID &>/dev/null; then
-        echo "Creating default network..."
-        gcloud compute networks create default \
-            --subnet-mode=auto \
-            --project=$PROJECT_ID
-        echo "✓ Default network created"
-    else
-        echo "✓ Default network exists"
-    fi
-    echo ""
-    
-    echo "Step 1b: Configuring firewall rules..."
-    # Create SSH firewall rule if it doesn't exist
-    if ! gcloud compute firewall-rules describe allow-ssh --project=$PROJECT_ID &>/dev/null; then
-        echo "Creating SSH firewall rule..."
-        gcloud compute firewall-rules create allow-ssh \
-            --allow tcp:22 \
-            --source-ranges 0.0.0.0/0 \
-            --description "Allow SSH from anywhere" \
-            --project=$PROJECT_ID
-        echo "✓ SSH firewall rule created"
-    else
-        echo "✓ SSH firewall rule exists"
-    fi
-    
-    # Create HTTP firewall rule if it doesn't exist
-    FIREWALL_RULE="allow-gemini-agent-http"
-    if ! gcloud compute firewall-rules describe $FIREWALL_RULE --project=$PROJECT_ID &>/dev/null; then
-        echo "Creating HTTP firewall rule (port 80)..."
-        echo "  Allowing traffic from: $SOURCE_RANGES"
-        gcloud compute firewall-rules create $FIREWALL_RULE \
-            --allow tcp:80 \
-            --source-ranges "$SOURCE_RANGES" \
-            --target-tags http-server \
-            --description "Allow HTTP traffic to Gemini Agent" \
-            --project=$PROJECT_ID
-        echo "✓ HTTP firewall rule created"
-    else
-        echo "✓ HTTP firewall rule exists"
-        echo "  Updating source ranges to: $SOURCE_RANGES"
-        gcloud compute firewall-rules update $FIREWALL_RULE \
-            --source-ranges "$SOURCE_RANGES" \
-            --project=$PROJECT_ID
-        echo "✓ Firewall rule updated"
-    fi
-    echo ""
     
     echo "Step 1c: Creating Debian VM..."
     gcloud compute instances create $VM_NAME \
