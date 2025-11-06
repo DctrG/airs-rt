@@ -20,30 +20,109 @@ if [ -z "$PROJECT_ID" ]; then
     echo "  project-id: GCP project ID (required)"
     echo "  vm-name:   VM name (default: gemini-agent-vm)"
     echo "  zone:      GCP zone (default: us-central1-a)"
-    echo "  your-ip:   Your public IP address for firewall (optional, will auto-detect if not provided)"
+    echo "  your-ip:   Your public IP address for firewall"
+    echo "             - Optional when running from local machine (will auto-detect)"
+    echo "             - Required when running from Cloud Shell (auto-detection won't work)"
+    echo "             - Find your IP: https://www.google.com/search?q=what+is+my+ip"
     exit 1
+fi
+
+# Detect if running from Cloud Shell
+IS_CLOUD_SHELL=false
+if [ -n "$CLOUD_SHELL" ] || [ -n "$CLOUDSHELL_ENVIRONMENT" ] || echo "$HOSTNAME" | grep -q "cloudshell"; then
+    IS_CLOUD_SHELL=true
 fi
 
 # Auto-detect user IP if not provided
 if [ -z "$USER_IP" ]; then
-    echo "Auto-detecting your public IP address..."
-    USER_IP=$(curl -s https://api.ipify.org 2>/dev/null || echo "")
-    if [ -z "$USER_IP" ]; then
-        echo "⚠️  Could not auto-detect your IP. Firewall will allow all traffic."
-        echo "   You can manually update the firewall rule later with:"
-        echo "   ./update-firewall.sh [your-ip]"
-        SOURCE_RANGES="0.0.0.0/0"
+    if [ "$IS_CLOUD_SHELL" = true ]; then
+        echo "⚠️  Running from GCP Cloud Shell"
+        echo "   Auto-detection will show Cloud Shell's IP, not your actual IP."
+        echo ""
+        echo "   To find your actual IP address:"
+        echo "   1. Visit: https://www.google.com/search?q=what+is+my+ip"
+        echo "   2. Or run from your local machine: curl -s https://api.ipify.org"
+        echo ""
+        read -p "Enter your actual public IP address (or press Enter to allow all traffic): " USER_IP
+        if [ -z "$USER_IP" ]; then
+            echo "⚠️  No IP provided. Firewall will allow all traffic (0.0.0.0/0)."
+            SOURCE_RANGES="0.0.0.0/0"
+        else
+            # Validate IP format (basic check)
+            if [[ $USER_IP =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+                SOURCE_RANGES="$USER_IP/32,35.197.73.227/32"
+                echo "✓ Using provided IP: $USER_IP"
+            else
+                echo "⚠️  Invalid IP format. Firewall will allow all traffic."
+                SOURCE_RANGES="0.0.0.0/0"
+            fi
+        fi
     else
-        echo "✓ Detected your IP: $USER_IP"
-        SOURCE_RANGES="$USER_IP/32,35.197.73.227/32"
+        echo "Auto-detecting your public IP address..."
+        USER_IP=$(curl -s https://api.ipify.org 2>/dev/null || echo "")
+        if [ -z "$USER_IP" ]; then
+            echo "⚠️  Could not auto-detect your IP. Firewall will allow all traffic."
+            echo "   You can manually update the firewall rule later with:"
+            echo "   gcloud compute firewall-rules update allow-gemini-agent-http --source-ranges YOUR_IP/32,35.197.73.227/32"
+            SOURCE_RANGES="0.0.0.0/0"
+        else
+            echo "✓ Detected your IP: $USER_IP"
+            SOURCE_RANGES="$USER_IP/32,35.197.73.227/32"
+        fi
     fi
 else
-    SOURCE_RANGES="$USER_IP/32,35.197.73.227/32"
-    echo "Using provided IP: $USER_IP"
+    # Validate IP format if provided
+    if [[ $USER_IP =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+        SOURCE_RANGES="$USER_IP/32,35.197.73.227/32"
+        echo "Using provided IP: $USER_IP"
+    else
+        echo "⚠️  Invalid IP format: $USER_IP"
+        echo "   Expected format: X.X.X.X (e.g., 192.168.1.1)"
+        echo "   Firewall will allow all traffic."
+        SOURCE_RANGES="0.0.0.0/0"
+    fi
 fi
 
 # GCP health checker IP (always included)
 GCP_HEALTH_CHECKER="35.197.73.227/32"
+
+# Check for updates from GitHub
+echo "Checking for updates from GitHub..."
+if [ -d ".git" ]; then
+    # Fetch latest changes without merging
+    git fetch origin main &>/dev/null
+    
+    # Check if local is behind remote
+    LOCAL=$(git rev-parse @ 2>/dev/null)
+    REMOTE=$(git rev-parse @{u} 2>/dev/null 2>/dev/null || echo "")
+    
+    if [ -n "$REMOTE" ] && [ "$LOCAL" != "$REMOTE" ]; then
+        echo "⚠️  GitHub repository has newer commits"
+        echo "   Local:  $LOCAL"
+        echo "   Remote: $REMOTE"
+        echo "   Pulling latest changes..."
+        if git pull origin main; then
+            echo "✓ Successfully updated from GitHub"
+            echo ""
+            echo "⚠️  Script was updated. Please review changes and run again if needed."
+            echo "   Or continue with current deployment..."
+            echo ""
+            read -p "Continue with deployment? (y/n) " -n 1 -r
+            echo ""
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                echo "Deployment cancelled."
+                exit 0
+            fi
+        else
+            echo "⚠️  Failed to pull updates. Continuing with current version..."
+        fi
+    else
+        echo "✓ Repository is up to date"
+    fi
+else
+    echo "⚠️  Not a git repository. Skipping update check."
+fi
+echo ""
 
 # Validate project and set it explicitly for all commands
 echo "Validating project: $PROJECT_ID"
