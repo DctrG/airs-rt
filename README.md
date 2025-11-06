@@ -18,45 +18,39 @@ A Python FastAPI application that uses Google Gemini with function-calling and p
 The application automatically detects the GCP project when deployed to a VM. No manual configuration needed - the deployment script handles:
 - Auto-detection of `GOOGLE_CLOUD_PROJECT` from the metadata server
 - Vertex AI initialization with Application Default Credentials
-- Firewall rules configuration with auto-detected source IP
+- Firewall rules configuration with auto-detected Cloud Shell IP
 
 ## Deployment
 
 ### Deploy to GCP VM
 
-The automated deployment script creates a VM, configures firewall rules, and deploys the application:
+Run the deployment script from Cloud Shell:
 
 ```bash
-./auto-deploy-gcp.sh [project-id] [vm-name] [zone] [your-ip]
+./auto-deploy-gcp.sh [project-id] [vm-name] [zone]
 ```
 
 **Arguments:**
 - `project-id`: GCP project ID (required)
 - `vm-name`: VM name (default: `gemini-agent-vm`)
 - `zone`: GCP zone (default: `us-central1-a`)
-- `your-ip`: Your public IP address (optional, auto-detected)
 
 **Examples:**
 
-From Cloud Shell (IP auto-detected):
+Basic deployment:
 ```bash
 ./auto-deploy-gcp.sh airs20-poc
 ```
 
-With explicit parameters:
+With custom VM name and zone:
 ```bash
-./auto-deploy-gcp.sh airs20-poc gemini-agent-vm us-central1-a
-```
-
-With explicit IP:
-```bash
-./auto-deploy-gcp.sh airs20-poc gemini-agent-vm us-central1-a 203.0.113.1
+./auto-deploy-gcp.sh airs20-poc my-gemini-vm us-central1-b
 ```
 
 **What the script does:**
 1. Checks for updates from GitHub
-2. Auto-detects source IP (Cloud Shell or local machine)
-3. Creates/updates firewall rules (allows your IP + GCP health checker)
+2. Auto-detects Cloud Shell's external IP
+3. Creates/updates firewall rules (allows Cloud Shell IP + GCP health checker)
 4. Creates Debian VM if it doesn't exist
 5. Deploys application code
 6. Configures systemd service
@@ -137,7 +131,7 @@ This will show:
 
 If you can't access the application:
 1. Check firewall rules: `gcloud compute firewall-rules describe allow-gemini-agent-http`
-2. Update firewall with your IP: `gcloud compute firewall-rules update allow-gemini-agent-http --source-ranges YOUR_IP/32,35.197.73.227/32`
+2. The script automatically updates the firewall with Cloud Shell's IP on each run
 
 ### Vertex AI Permissions
 
