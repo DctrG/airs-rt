@@ -39,8 +39,17 @@ if [ -z "$USER_IP" ]; then
     
     # Try to get IP address
     if [ "$IS_CLOUD_SHELL" = true ]; then
-        # In Cloud Shell, get the Cloud Shell's external IP
-        USER_IP=$(curl -s https://api.ipify.org 2>/dev/null || echo "")
+        # In Cloud Shell, try multiple methods to get the external IP
+        echo "  Attempting to get Cloud Shell's external IP..."
+        
+        # Method 1: Try GCP metadata server (works in Compute Engine, may work in Cloud Shell)
+        USER_IP=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip 2>/dev/null || echo "")
+        
+        # Method 2: Try external service if metadata server didn't work
+        if [ -z "$USER_IP" ]; then
+            USER_IP=$(curl -s ifconfig.me 2>/dev/null || curl -s https://api.ipify.org 2>/dev/null || echo "")
+        fi
+        
         if [ -n "$USER_IP" ]; then
             echo "✓ Detected Cloud Shell IP: $USER_IP"
             SOURCE_RANGES="$USER_IP/32,35.197.73.227/32"
@@ -49,8 +58,8 @@ if [ -z "$USER_IP" ]; then
             SOURCE_RANGES="0.0.0.0/0"
         fi
     else
-        # Not in Cloud Shell, get local machine's IP
-        USER_IP=$(curl -s https://api.ipify.org 2>/dev/null || echo "")
+        # Not in Cloud Shell, get local machine's IP using external services
+        USER_IP=$(curl -s ifconfig.me 2>/dev/null || curl -s https://api.ipify.org 2>/dev/null || echo "")
         if [ -z "$USER_IP" ]; then
             echo "⚠️  Could not auto-detect your IP. Firewall will allow all traffic."
             echo "   You can manually update the firewall rule later with:"
