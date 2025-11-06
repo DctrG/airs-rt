@@ -20,45 +20,36 @@ if [ -z "$PROJECT_ID" ]; then
     echo "  project-id: GCP project ID (required)"
     echo "  vm-name:   VM name (default: gemini-agent-vm)"
     echo "  zone:      GCP zone (default: us-central1-a)"
-    echo "  your-ip:   Your public IP address for firewall"
-    echo "             - Optional when running from local machine (will auto-detect)"
-    echo "             - Required when running from Cloud Shell (auto-detection won't work)"
-    echo "             - Find your IP: https://www.google.com/search?q=what+is+my+ip"
+    echo "  your-ip:   Your public IP address for firewall (optional, will auto-detect)"
+    echo "             - Auto-detects Cloud Shell IP when running from Cloud Shell"
+    echo "             - Auto-detects your IP when running from local machine"
     exit 1
-fi
-
-# Detect if running from Cloud Shell
-IS_CLOUD_SHELL=false
-if [ -n "$CLOUD_SHELL" ] || [ -n "$CLOUDSHELL_ENVIRONMENT" ] || echo "$HOSTNAME" | grep -q "cloudshell"; then
-    IS_CLOUD_SHELL=true
 fi
 
 # Auto-detect user IP if not provided
 if [ -z "$USER_IP" ]; then
+    echo "Auto-detecting source IP address..."
+    
+    # Check if running from Cloud Shell
+    IS_CLOUD_SHELL=false
+    if [ -n "$CLOUD_SHELL" ] || [ -n "$CLOUDSHELL_ENVIRONMENT" ] || echo "$HOSTNAME" | grep -q "cloudshell"; then
+        IS_CLOUD_SHELL=true
+        echo "  Detected: Running from GCP Cloud Shell"
+    fi
+    
+    # Try to get IP address
     if [ "$IS_CLOUD_SHELL" = true ]; then
-        echo "⚠️  Running from GCP Cloud Shell"
-        echo "   Auto-detection will show Cloud Shell's IP, not your actual IP."
-        echo ""
-        echo "   To find your actual IP address:"
-        echo "   1. Visit: https://www.google.com/search?q=what+is+my+ip"
-        echo "   2. Or run from your local machine: curl -s https://api.ipify.org"
-        echo ""
-        read -p "Enter your actual public IP address (or press Enter to allow all traffic): " USER_IP
-        if [ -z "$USER_IP" ]; then
-            echo "⚠️  No IP provided. Firewall will allow all traffic (0.0.0.0/0)."
-            SOURCE_RANGES="0.0.0.0/0"
+        # In Cloud Shell, get the Cloud Shell's external IP
+        USER_IP=$(curl -s https://api.ipify.org 2>/dev/null || echo "")
+        if [ -n "$USER_IP" ]; then
+            echo "✓ Detected Cloud Shell IP: $USER_IP"
+            SOURCE_RANGES="$USER_IP/32,35.197.73.227/32"
         else
-            # Validate IP format (basic check)
-            if [[ $USER_IP =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
-                SOURCE_RANGES="$USER_IP/32,35.197.73.227/32"
-                echo "✓ Using provided IP: $USER_IP"
-            else
-                echo "⚠️  Invalid IP format. Firewall will allow all traffic."
-                SOURCE_RANGES="0.0.0.0/0"
-            fi
+            echo "⚠️  Could not detect Cloud Shell IP. Firewall will allow all traffic."
+            SOURCE_RANGES="0.0.0.0/0"
         fi
     else
-        echo "Auto-detecting your public IP address..."
+        # Not in Cloud Shell, get local machine's IP
         USER_IP=$(curl -s https://api.ipify.org 2>/dev/null || echo "")
         if [ -z "$USER_IP" ]; then
             echo "⚠️  Could not auto-detect your IP. Firewall will allow all traffic."
