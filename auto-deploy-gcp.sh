@@ -2,20 +2,48 @@
 
 # Automated deployment to GCP Compute Engine Debian VM
 # Creates VM, deploys code, runs app, and opens firewall
-# Usage: ./auto-deploy-gcp.sh [project-id] [vm-name] [zone]
+# Usage: ./auto-deploy-gcp.sh [project-id] [vm-name] [zone] [your-ip]
 
 set -e
 
 PROJECT_ID=${1:-$GOOGLE_CLOUD_PROJECT}
 VM_NAME=${2:-"gemini-agent-vm"}
 ZONE=${3:-"us-central1-a"}
+USER_IP=${4:-""}
 
 if [ -z "$PROJECT_ID" ]; then
     echo "Error: Project ID required"
-    echo "Usage: ./auto-deploy-gcp.sh [project-id] [vm-name] [zone]"
+    echo "Usage: ./auto-deploy-gcp.sh [project-id] [vm-name] [zone] [your-ip]"
     echo "Or set GOOGLE_CLOUD_PROJECT environment variable"
+    echo ""
+    echo "Arguments:"
+    echo "  project-id: GCP project ID (required)"
+    echo "  vm-name:   VM name (default: gemini-agent-vm)"
+    echo "  zone:      GCP zone (default: us-central1-a)"
+    echo "  your-ip:   Your public IP address for firewall (optional, will auto-detect if not provided)"
     exit 1
 fi
+
+# Auto-detect user IP if not provided
+if [ -z "$USER_IP" ]; then
+    echo "Auto-detecting your public IP address..."
+    USER_IP=$(curl -s https://api.ipify.org 2>/dev/null || echo "")
+    if [ -z "$USER_IP" ]; then
+        echo "⚠️  Could not auto-detect your IP. Firewall will allow all traffic."
+        echo "   You can manually update the firewall rule later with:"
+        echo "   ./update-firewall.sh [your-ip]"
+        SOURCE_RANGES="0.0.0.0/0"
+    else
+        echo "✓ Detected your IP: $USER_IP"
+        SOURCE_RANGES="$USER_IP/32,35.197.73.227/32"
+    fi
+else
+    SOURCE_RANGES="$USER_IP/32,35.197.73.227/32"
+    echo "Using provided IP: $USER_IP"
+fi
+
+# GCP health checker IP (always included)
+GCP_HEALTH_CHECKER="35.197.73.227/32"
 
 # Validate project and set it explicitly for all commands
 echo "Validating project: $PROJECT_ID"
@@ -34,6 +62,9 @@ echo "=========================================="
 echo "Project: $PROJECT_ID (explicitly set)"
 echo "VM Name: $VM_NAME"
 echo "Zone: $ZONE"
+if [ "$SOURCE_RANGES" != "0.0.0.0/0" ]; then
+    echo "Allowed IPs: $SOURCE_RANGES"
+fi
 echo ""
 echo "Note: All gcloud commands will use project: $PROJECT_ID"
 echo ""
@@ -80,15 +111,21 @@ if [ "$EXISTING_VM" = false ]; then
     FIREWALL_RULE="allow-gemini-agent-http"
     if ! gcloud compute firewall-rules describe $FIREWALL_RULE --project=$PROJECT_ID &>/dev/null; then
         echo "Creating HTTP firewall rule (port 80)..."
+        echo "  Allowing traffic from: $SOURCE_RANGES"
         gcloud compute firewall-rules create $FIREWALL_RULE \
             --allow tcp:80 \
-            --source-ranges 0.0.0.0/0 \
+            --source-ranges "$SOURCE_RANGES" \
             --target-tags http-server \
             --description "Allow HTTP traffic to Gemini Agent" \
             --project=$PROJECT_ID
         echo "✓ HTTP firewall rule created"
     else
         echo "✓ HTTP firewall rule exists"
+        echo "  Updating source ranges to: $SOURCE_RANGES"
+        gcloud compute firewall-rules update $FIREWALL_RULE \
+            --source-ranges "$SOURCE_RANGES" \
+            --project=$PROJECT_ID
+        echo "✓ Firewall rule updated"
     fi
     echo ""
     
@@ -276,17 +313,16 @@ else
     echo "✓ Port 80 access configured"
 fi
 
-# Configure firewall (allow port 80)
-echo "Configuring firewall..."
+# Configure local firewall (allow port 80)
+# Note: GCP firewall rules handle external access, this is for local VM firewall
+echo "Configuring local firewall..."
 if command -v ufw &> /dev/null; then
-    ufw allow 80/tcp
+    ufw allow 80/tcp &>/dev/null
     echo "✓ UFW firewall configured"
 elif command -v firewall-cmd &> /dev/null; then
-    firewall-cmd --permanent --add-port=80/tcp
-    firewall-cmd --reload
+    firewall-cmd --permanent --add-port=80/tcp &>/dev/null
+    firewall-cmd --reload &>/dev/null
     echo "✓ firewalld configured"
-else
-    echo "⚠️  No firewall manager found. Please manually allow port 80"
 fi
 
 # Enable and start service
@@ -307,12 +343,15 @@ echo ""
 echo "Step 5: Verifying firewall rules..."
 FIREWALL_RULE="allow-gemini-agent-http"
 if gcloud compute firewall-rules describe $FIREWALL_RULE --project=$PROJECT_ID &>/dev/null; then
+    CURRENT_RANGES=$(gcloud compute firewall-rules describe $FIREWALL_RULE --project=$PROJECT_ID --format="get(sourceRanges.list())" 2>/dev/null)
     echo "✓ HTTP firewall rule is configured"
+    echo "  Current allowed IPs: $CURRENT_RANGES"
 else
     echo "⚠️  HTTP firewall rule missing, creating now..."
+    echo "  Allowing traffic from: $SOURCE_RANGES"
     gcloud compute firewall-rules create $FIREWALL_RULE \
         --allow tcp:80 \
-        --source-ranges 0.0.0.0/0 \
+        --source-ranges "$SOURCE_RANGES" \
         --target-tags http-server \
         --description "Allow HTTP traffic to Gemini Agent" \
         --project=$PROJECT_ID
@@ -320,17 +359,65 @@ else
 fi
 echo ""
 
-# Wait a moment for service to start
-echo "Waiting for service to start..."
-sleep 5
+# Wait for service to start
+echo "Step 6: Waiting for service to start..."
+echo "Checking service status..."
+MAX_WAIT=30
+ELAPSED=0
+SLEEP_INTERVAL=2
 
-# Test the deployment
-echo "Step 6: Testing deployment..."
-if curl -s --max-time 5 http://$VM_IP/health &>/dev/null; then
-    echo "✓ Service is responding!"
+while [ $ELAPSED -lt $MAX_WAIT ]; do
+    if curl -s --max-time 3 http://$VM_IP/health &>/dev/null; then
+        echo "✓ Service is ready!"
+        break
+    fi
+    echo "  Waiting for service... (${ELAPSED}s / ${MAX_WAIT}s)"
+    sleep $SLEEP_INTERVAL
+    ELAPSED=$((ELAPSED + SLEEP_INTERVAL))
+done
+
+if [ $ELAPSED -ge $MAX_WAIT ]; then
+    echo "⚠️  Service may still be starting. Continuing with tests..."
+fi
+echo ""
+
+# Test health endpoint
+echo "Step 7: Testing health endpoint..."
+HEALTH_RESPONSE=$(curl -s --max-time 5 http://$VM_IP/health 2>&1)
+if [ $? -eq 0 ] && echo "$HEALTH_RESPONSE" | grep -q "ok\|status"; then
+    echo "✓ Health check passed!"
+    echo "  Response: $HEALTH_RESPONSE"
 else
-    echo "⚠️  Service may still be starting. Check logs:"
-    echo "   gcloud compute ssh $VM_NAME --zone=$ZONE --command='sudo journalctl -u gemini-agent -n 20'"
+    echo "⚠️  Health check failed"
+    echo "  Response: $HEALTH_RESPONSE"
+fi
+echo ""
+
+# Test API endpoint with actual request
+echo "Step 8: Testing API endpoint..."
+echo "Sending test request: 'What is 2+2?'"
+TEST_RESPONSE=$(curl -s --max-time 15 -X POST http://$VM_IP/api/chat \
+    -H "Content-Type: application/json" \
+    -d '{"prompt": "What is 2+2?"}' 2>&1)
+
+if [ $? -eq 0 ]; then
+    if echo "$TEST_RESPONSE" | grep -q "text\|error"; then
+        echo "✓ API endpoint is responding!"
+        echo "Response preview (first 300 chars):"
+        echo "$TEST_RESPONSE" | head -c 300
+        echo ""
+        echo ""
+        # Check if there's an error
+        if echo "$TEST_RESPONSE" | grep -q '"error"'; then
+            echo "⚠️  API returned an error (check Vertex AI permissions if using GCP)"
+        fi
+    else
+        echo "⚠️  Unexpected API response format"
+        echo "Response: $TEST_RESPONSE"
+    fi
+else
+    echo "⚠️  API test failed (connection error)"
+    echo "Response: $TEST_RESPONSE"
 fi
 echo ""
 
@@ -347,6 +434,11 @@ echo "Access the application:"
 echo "  Web UI: http://$VM_IP/"
 echo "  API: http://$VM_IP/api/chat"
 echo "  Health: http://$VM_IP/health"
+echo ""
+echo "Test the API:"
+echo "  curl -X POST http://$VM_IP/api/chat \\"
+echo "    -H \"Content-Type: application/json\" \\"
+echo "    -d '{\"prompt\": \"What is 2+2?\"}'"
 echo ""
 echo "Useful commands:"
 echo "  SSH to VM: gcloud compute ssh $VM_NAME --zone=$ZONE"
