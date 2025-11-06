@@ -13,12 +13,6 @@ A Python FastAPI application that uses Google Gemini with function-calling and p
 - **Real-time logging**: Monitor API requests and responses in real-time
 - **Automated deployment**: One-command deployment to GCP Compute Engine
 
-## Requirements
-
-- `gcloud` CLI configured with appropriate permissions
-- GCP project with Vertex AI API enabled
-- Service account with `roles/aiplatform.user` role
-
 ## Configuration
 
 The application automatically detects the GCP project when deployed to a VM. No manual configuration needed - the deployment script handles:
