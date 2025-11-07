@@ -83,6 +83,30 @@ curl -X POST http://your-vm-ip/api/chat \
 }
 ```
 
+### AIRS RT Setup
+
+**Curl command:**
+```bash
+curl \
+  "http://136.119.243.189/api/chat" \
+  -H "Content-Type: application/json" \
+  --data '{"prompt":"{INPUT}"}'
+```
+
+**Request JSON:**
+```json
+{
+  "prompt": "{INPUT}"
+}
+```
+
+**Response JSON:**
+```json
+{
+  "text": "{RESPONSE}"
+}
+```
+
 ### Monitor API Requests
 
 Watch API requests and responses in real-time:
