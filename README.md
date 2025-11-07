@@ -85,7 +85,7 @@ curl -X POST http://your-vm-ip/api/chat \
 
 ### AIRS RT Setup
 
-**Curl command:**
+**cURL String:**
 ```bash
 curl \
   "http://your-vm-ip/api/chat" \
