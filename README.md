@@ -1,6 +1,6 @@
-# Gemini Agent App
+# AI Agent App
 
-A Python FastAPI application that uses Google Gemini with function-calling and popular tools:
+A Python FastAPI application implementing an AI agent that uses Google Gemini with function-calling and popular tools:
 - Web search (DuckDuckGo Instant Answer)
 - Fetch URL and extract readable text
 - Safe calculator
@@ -79,14 +79,7 @@ curl -X POST http://your-vm-ip/api/chat \
 **Response format:**
 ```json
 {
-  "text": "The answer is 4.",
-  "tools": [
-    {
-      "name": "calculator",
-      "args": {"expression": "2+2"},
-      "result": "4"
-    }
-  ]
+  "text": "2+2 is 4."
 }
 ```
 

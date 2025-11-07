@@ -65,8 +65,7 @@ async def chat(req: ChatRequest, request: Request):
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 content={
                     "error": error_msg,
-                    "text": result.get("text", f"Error: {error_msg}"),
-                    "tools": result.get("tools", [])
+                    "text": result.get("text", f"Error: {error_msg}")
                 }
             )
         
@@ -75,10 +74,12 @@ async def chat(req: ChatRequest, request: Request):
         tools_used = len(result.get("tools", []))
         logger.info(f"[API_RESPONSE] {timestamp} | IP: {client_ip} | Status: 200 OK | Tools: {tools_used} | Response: {response_text}")
         
-        # Return 200 OK - standard for agent/chat APIs (not creating a resource, just processing and returning result)
+        # Return only the text - tools are internal implementation details (still logged)
         return JSONResponse(
             status_code=status.HTTP_200_OK,
-            content=result
+            content={
+                "text": result.get("text", "")
+            }
         )
     except HTTPException:
         # Re-raise HTTP exceptions (like 400 Bad Request)
@@ -92,8 +93,7 @@ async def chat(req: ChatRequest, request: Request):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
                 "error": error_msg,
-                "text": f"Error: {error_msg}",
-                "tools": []
+                "text": f"Error: {error_msg}"
             }
         )
 
