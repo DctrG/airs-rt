@@ -88,7 +88,7 @@ curl -X POST http://your-vm-ip/api/chat \
 **Curl command:**
 ```bash
 curl \
-  "http://136.119.243.189/api/chat" \
+  "http://your-vm-ip/api/chat" \
   -H "Content-Type: application/json" \
   --data '{"prompt":"{INPUT}"}'
 ```
