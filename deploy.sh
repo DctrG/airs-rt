@@ -363,7 +363,6 @@ mkdir -p $PACKAGE_DIR
 # Copy necessary files
 cp -r app $PACKAGE_DIR/
 cp requirements.txt $PACKAGE_DIR/
-cp env.sample $PACKAGE_DIR/
 
 # Create tarball
 tar -czf $PACKAGE_FILE $PACKAGE_DIR/
@@ -422,9 +421,6 @@ mkdir -p $APP_DIR
 echo "Copying application files..."
 cp -r $SOURCE_DIR/app $APP_DIR/
 cp $SOURCE_DIR/requirements.txt $APP_DIR/
-if [ -f $SOURCE_DIR/env.sample ]; then
-    cp $SOURCE_DIR/env.sample $APP_DIR/.env.example
-fi
 
 cd $APP_DIR
 
@@ -472,11 +468,6 @@ if [ ! -f "$APP_DIR/.env" ]; then
     else
         # Create empty .env file if project detection fails
         touch $APP_DIR/.env
-    fi
-    # Copy template if it exists (for optional overrides)
-    if [ -f "$APP_DIR/.env.example" ]; then
-        # Append any non-empty, non-comment lines from template
-        grep -v "^#" $APP_DIR/.env.example | grep -v "^$" >> $APP_DIR/.env 2>/dev/null || true
     fi
 fi
 
