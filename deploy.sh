@@ -151,57 +151,88 @@ done
 echo ""
 
 # Get the default Compute Engine service account email
-COMPUTE_SA="${PROJECT_ID}@${PROJECT_ID}.iam.gserviceaccount.com"
+# Format: PROJECT_NUMBER-compute@developer.gserviceaccount.com
+PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format="value(projectNumber)" 2>/dev/null || echo "")
+if [ -n "$PROJECT_NUMBER" ]; then
+    COMPUTE_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+else
+    # Fallback: try to get from IAM service accounts list
+    COMPUTE_SA=$(gcloud iam service-accounts list --project=$PROJECT_ID --filter="displayName:Compute Engine default service account" --format="value(email)" --limit=1 2>/dev/null || echo "")
+    if [ -z "$COMPUTE_SA" ]; then
+        # Last resort: use project number format (will be validated when granting permission)
+        echo "⚠️  Could not determine default service account, will use VM's service account"
+        COMPUTE_SA=""
+    fi
+fi
+
 echo "Step 0b: Checking service account permissions..."
-echo "  Service account: $COMPUTE_SA"
 
 # Check if VM exists to determine which service account to check
 if gcloud compute instances describe $VM_NAME --zone=$ZONE --project=$PROJECT_ID &>/dev/null 2>&1; then
     # VM exists, get its actual service account
-    VM_SA=$(gcloud compute instances describe $VM_NAME --zone=$ZONE --project=$PROJECT_ID --format="get(serviceAccounts[0].email)" 2>/dev/null || echo "$COMPUTE_SA")
-    echo "  Using VM's service account: $VM_SA"
-    SA_TO_CHECK="$VM_SA"
+    VM_SA=$(gcloud compute instances describe $VM_NAME --zone=$ZONE --project=$PROJECT_ID --format="get(serviceAccounts[0].email)" 2>/dev/null || echo "")
+    if [ -n "$VM_SA" ]; then
+        echo "  Using VM's service account: $VM_SA"
+        SA_TO_CHECK="$VM_SA"
+    elif [ -n "$COMPUTE_SA" ]; then
+        echo "  Using default Compute Engine service account: $COMPUTE_SA"
+        SA_TO_CHECK="$COMPUTE_SA"
+    else
+        echo "⚠️  Could not determine service account. Skipping permission check."
+        echo "   You may need to grant roles/aiplatform.user manually after VM creation."
+        SA_TO_CHECK=""
+    fi
 else
-    # VM doesn't exist yet, check default service account
-    SA_TO_CHECK="$COMPUTE_SA"
+    # VM doesn't exist yet, use default service account
+    if [ -n "$COMPUTE_SA" ]; then
+        echo "  Service account: $COMPUTE_SA"
+        SA_TO_CHECK="$COMPUTE_SA"
+    else
+        echo "⚠️  Could not determine default service account. Will check after VM creation."
+        SA_TO_CHECK=""
+    fi
 fi
 
-# Check if service account has aiplatform.user role
-PERMISSION_CHECK=$(gcloud projects get-iam-policy $PROJECT_ID --flatten="bindings[].members" --filter="bindings.members:serviceAccount:$SA_TO_CHECK AND bindings.role:roles/aiplatform.user" --format="value(bindings.role)" 2>/dev/null)
-if echo "$PERMISSION_CHECK" | grep -q "roles/aiplatform.user"; then
-    echo "✓ Service account has roles/aiplatform.user permission"
-else
-    echo "⚠️  Service account missing roles/aiplatform.user permission. Attempting to grant..."
-    GRANT_OUTPUT=$(gcloud projects add-iam-policy-binding $PROJECT_ID \
-        --member="serviceAccount:$SA_TO_CHECK" \
-        --role="roles/aiplatform.user" \
-        --condition=None 2>&1)
-    GRANT_EXIT_CODE=$?
-    
-    if [ $GRANT_EXIT_CODE -eq 0 ]; then
-        echo "✓ Granted roles/aiplatform.user to service account"
-        echo "  Note: IAM changes may take a few minutes to propagate"
+# Check if service account has aiplatform.user role (only if we have a service account to check)
+if [ -n "$SA_TO_CHECK" ]; then
+    PERMISSION_CHECK=$(gcloud projects get-iam-policy $PROJECT_ID --flatten="bindings[].members" --filter="bindings.members:serviceAccount:$SA_TO_CHECK AND bindings.role:roles/aiplatform.user" --format="value(bindings.role)" 2>/dev/null)
+    if echo "$PERMISSION_CHECK" | grep -q "roles/aiplatform.user"; then
+        echo "✓ Service account has roles/aiplatform.user permission"
     else
-        echo "⚠️  Could not automatically grant roles/aiplatform.user permission"
-        echo "   Error: $GRANT_OUTPUT"
-        echo ""
-        echo "   This usually means you don't have IAM admin permissions."
-        echo "   Please ask a project admin to grant the permission manually:"
-        echo ""
-        echo "   gcloud projects add-iam-policy-binding $PROJECT_ID \\"
-        echo "     --member=\"serviceAccount:$SA_TO_CHECK\" \\"
-        echo "     --role=\"roles/aiplatform.user\""
-        echo ""
-        echo "   Or continue deployment and grant it later. The app will work"
-        echo "   once the permission is granted (may take a few minutes to propagate)."
-        echo ""
-        read -p "Continue with deployment? (y/n) " -n 1 -r
-        echo ""
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            echo "Deployment cancelled."
-            exit 0
+        echo "⚠️  Service account missing roles/aiplatform.user permission. Attempting to grant..."
+        GRANT_OUTPUT=$(gcloud projects add-iam-policy-binding $PROJECT_ID \
+            --member="serviceAccount:$SA_TO_CHECK" \
+            --role="roles/aiplatform.user" \
+            --condition=None 2>&1)
+        GRANT_EXIT_CODE=$?
+        
+        if [ $GRANT_EXIT_CODE -eq 0 ]; then
+            echo "✓ Granted roles/aiplatform.user to service account"
+            echo "  Note: IAM changes may take a few minutes to propagate"
+        else
+            echo "⚠️  Could not automatically grant roles/aiplatform.user permission"
+            echo "   Error: $GRANT_OUTPUT"
+            echo ""
+            echo "   This usually means you don't have IAM admin permissions."
+            echo "   Please ask a project admin to grant the permission manually:"
+            echo ""
+            echo "   gcloud projects add-iam-policy-binding $PROJECT_ID \\"
+            echo "     --member=\"serviceAccount:$SA_TO_CHECK\" \\"
+            echo "     --role=\"roles/aiplatform.user\""
+            echo ""
+            echo "   Or continue deployment and grant it later. The app will work"
+            echo "   once the permission is granted (may take a few minutes to propagate)."
+            echo ""
+            read -p "Continue with deployment? (y/n) " -n 1 -r
+            echo ""
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                echo "Deployment cancelled."
+                exit 0
+            fi
         fi
     fi
+else
+    echo "⚠️  Skipping permission check (service account will be checked after VM creation)"
 fi
 echo ""
 
