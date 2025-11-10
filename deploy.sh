@@ -678,6 +678,7 @@ echo "Useful commands:"
 echo "  SSH to VM: gcloud compute ssh $VM_NAME --zone=$ZONE"
 echo "  View logs: gcloud compute ssh $VM_NAME --zone=$ZONE --command='sudo journalctl -u gemini-agent -f'"
 echo "  Restart: gcloud compute ssh $VM_NAME --zone=$ZONE --command='sudo systemctl restart gemini-agent'"
+echo "  Add IP to firewall: gcloud compute firewall-rules update allow-gemini-agent-http --source-ranges YOUR_IP/32,35.197.73.227/32 --project=$PROJECT_ID"
 echo "  Delete VM: gcloud compute instances delete $VM_NAME --zone=$ZONE"
 echo ""
 
