@@ -9,7 +9,7 @@ from .routes import api
 
 load_dotenv()
 
-app = FastAPI(title="Gemini Agent App", version="0.1.0")
+app = FastAPI(title="AI Agent App", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
