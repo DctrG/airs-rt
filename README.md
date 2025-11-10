@@ -12,7 +12,6 @@ A Python FastAPI application implementing an AI agent that uses Google Gemini wi
 - **Web UI**: Simple web interface for testing
 - **Real-time logging**: Monitor API requests and responses in real-time with detailed headers and status codes
 - **Automated deployment**: One-command deployment to GCP Compute Engine with automatic setup
-- **Model fallback**: Automatically falls back to compatible models if the default model is unavailable
 
 ## Configuration
 
@@ -72,15 +71,6 @@ The deployment script performs the following steps automatically:
 9. **Service Configuration**: Sets up systemd service running on port 80
 10. **Testing**: Tests health and API endpoints with curl
 11. **Output**: Provides access URLs and useful commands
-
-### Default Model
-
-The application uses `gemini-2.0-flash` by default. If this model is not available in Vertex AI, it automatically falls back to:
-- `gemini-1.5-flash-exp`
-- `gemini-1.5-flash`
-- `gemini-1.5-pro`
-
-You can override the default by setting the `GEMINI_MODEL` environment variable.
 
 ## Usage
 
