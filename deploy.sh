@@ -325,10 +325,11 @@ if [ "$EXISTING_VM" = false ]; then
         --machine-type=e2-small \
         --image-family=debian-12 \
         --image-project=debian-cloud \
-        --boot-disk-size=20GB \
+        --boot-disk-size=15GB \
         --tags=http-server,https-server \
         --scopes=https://www.googleapis.com/auth/cloud-platform \
-        --project=$PROJECT_ID
+        --project=$PROJECT_ID \
+        --quiet
     
     echo "✓ VM created"
     echo ""
