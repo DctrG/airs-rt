@@ -103,16 +103,7 @@ if [ -d ".git" ]; then
         echo "   Pulling latest changes..."
         if git pull origin main; then
             echo "✓ Successfully updated from GitHub"
-            echo ""
-            echo "⚠️  Script was updated. Please review changes and run again if needed."
-            echo "   Or continue with current deployment..."
-            echo ""
-            read -p "Continue with deployment? (y/n) " -n 1 -r
-            echo ""
-            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-                echo "Deployment cancelled."
-                exit 0
-            fi
+            echo "  Continuing with deployment using updated code..."
         else
             echo "⚠️  Failed to pull updates. Continuing with current version..."
         fi
