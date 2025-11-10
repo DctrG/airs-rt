@@ -463,14 +463,20 @@ EOFSERVICE
 
 # Create .env file if it doesn't exist
 if [ ! -f "$APP_DIR/.env" ]; then
-    echo "Creating .env file from template..."
-    cp $APP_DIR/.env.example $APP_DIR/.env
-    
+    echo "Creating .env file..."
     # Try to auto-detect GCP project from metadata server
     GCP_PROJECT=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/project/project-id 2>/dev/null || echo "")
     if [ -n "$GCP_PROJECT" ]; then
         echo "Auto-detected GCP project: $GCP_PROJECT"
-        sed -i "s/^GOOGLE_CLOUD_PROJECT=$/GOOGLE_CLOUD_PROJECT=$GCP_PROJECT/" $APP_DIR/.env
+        echo "GOOGLE_CLOUD_PROJECT=$GCP_PROJECT" > $APP_DIR/.env
+    else
+        # Create empty .env file if project detection fails
+        touch $APP_DIR/.env
+    fi
+    # Copy template if it exists (for optional overrides)
+    if [ -f "$APP_DIR/.env.example" ]; then
+        # Append any non-empty, non-comment lines from template
+        grep -v "^#" $APP_DIR/.env.example | grep -v "^$" >> $APP_DIR/.env 2>/dev/null || true
     fi
 fi
 
