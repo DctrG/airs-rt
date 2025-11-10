@@ -176,7 +176,8 @@ else
 fi
 
 # Check if service account has aiplatform.user role
-if gcloud projects get-iam-policy $PROJECT_ID --flatten="bindings[].members" --filter="bindings.members:serviceAccount:$SA_TO_CHECK AND bindings.role:roles/aiplatform.user" --format="value(bindings.role)" | grep -q "roles/aiplatform.user"; then
+PERMISSION_CHECK=$(gcloud projects get-iam-policy $PROJECT_ID --flatten="bindings[].members" --filter="bindings.members:serviceAccount:$SA_TO_CHECK AND bindings.role:roles/aiplatform.user" --format="value(bindings.role)" 2>/dev/null)
+if echo "$PERMISSION_CHECK" | grep -q "roles/aiplatform.user"; then
     echo "✓ Service account has roles/aiplatform.user permission"
 else
     echo "⚠️  Service account missing roles/aiplatform.user permission. Granting now..."
@@ -185,6 +186,7 @@ else
         --role="roles/aiplatform.user" \
         --condition=None 2>/dev/null; then
         echo "✓ Granted roles/aiplatform.user to service account"
+        echo "  Note: IAM changes may take a few minutes to propagate"
     else
         echo "❌ Failed to grant roles/aiplatform.user permission"
         echo "   Please grant it manually:"
@@ -289,21 +291,42 @@ if [ "$EXISTING_VM" = false ]; then
     # Verify service account permissions for the newly created VM
     echo "Verifying service account permissions..."
     VM_SA=$(gcloud compute instances describe $VM_NAME --zone=$ZONE --project=$PROJECT_ID --format="get(serviceAccounts[0].email)" 2>/dev/null || echo "$COMPUTE_SA")
-    if gcloud projects get-iam-policy $PROJECT_ID --flatten="bindings[].members" --filter="bindings.members:serviceAccount:$VM_SA AND bindings.role:roles/aiplatform.user" --format="value(bindings.role)" | grep -q "roles/aiplatform.user"; then
-        echo "✓ VM service account has required permissions"
-    else
-        echo "⚠️  Granting roles/aiplatform.user to VM service account..."
-        if gcloud projects add-iam-policy-binding $PROJECT_ID \
-            --member="serviceAccount:$VM_SA" \
-            --role="roles/aiplatform.user" \
-            --condition=None 2>/dev/null; then
-            echo "✓ Permissions granted"
+    echo "  VM service account: $VM_SA"
+    
+    # Check if service account has aiplatform.user role (with retry for IAM propagation)
+    PERMISSION_GRANTED=false
+    for i in {1..3}; do
+        if gcloud projects get-iam-policy $PROJECT_ID --flatten="bindings[].members" --filter="bindings.members:serviceAccount:$VM_SA AND bindings.role:roles/aiplatform.user" --format="value(bindings.role)" 2>/dev/null | grep -q "roles/aiplatform.user"; then
+            echo "✓ VM service account has required permissions"
+            PERMISSION_GRANTED=true
+            break
         else
-            echo "⚠️  Failed to grant permissions automatically. Please grant manually:"
-            echo "   gcloud projects add-iam-policy-binding $PROJECT_ID \\"
-            echo "     --member=\"serviceAccount:$VM_SA\" \\"
-            echo "     --role=\"roles/aiplatform.user\""
+            if [ $i -eq 1 ]; then
+                echo "⚠️  Granting roles/aiplatform.user to VM service account..."
+                if gcloud projects add-iam-policy-binding $PROJECT_ID \
+                    --member="serviceAccount:$VM_SA" \
+                    --role="roles/aiplatform.user" \
+                    --condition=None 2>/dev/null; then
+                    echo "✓ Permission granted, waiting for IAM propagation..."
+                    sleep 10  # Wait for IAM propagation
+                else
+                    echo "⚠️  Failed to grant permissions automatically. Please grant manually:"
+                    echo "   gcloud projects add-iam-policy-binding $PROJECT_ID \\"
+                    echo "     --member=\"serviceAccount:$VM_SA\" \\"
+                    echo "     --role=\"roles/aiplatform.user\""
+                    break
+                fi
+            else
+                echo "  Waiting for IAM propagation... (attempt $i/3)"
+                sleep 5
+            fi
         fi
+    done
+    
+    if [ "$PERMISSION_GRANTED" = false ]; then
+        echo "⚠️  Warning: Could not verify permissions. IAM changes may take a few minutes to propagate."
+        echo "   If you encounter permission errors, wait a few minutes and try again."
+        echo "   Or grant manually: gcloud projects add-iam-policy-binding $PROJECT_ID --member=\"serviceAccount:$VM_SA\" --role=\"roles/aiplatform.user\""
     fi
     echo ""
     
