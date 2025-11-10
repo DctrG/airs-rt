@@ -4,7 +4,7 @@ from fastapi import APIRouter, Request, HTTPException, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from ..services.agent import run_agent, GEMINI_MODEL
+from ..services.agent import run_agent
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -24,82 +24,9 @@ if not logger.handlers:
 
 class ChatRequest(BaseModel):
     prompt: str
-    model: str = None  # Optional model override
 
 
 router = APIRouter()
-
-
-@router.get("/models")
-async def get_models(request: Request):
-    """Get list of available Gemini models from Vertex AI"""
-    try:
-        from vertexai import init as vertex_init
-        from vertexai.generative_models import GenerativeModel
-        import os
-        
-        project = os.getenv("GOOGLE_CLOUD_PROJECT")
-        location = os.getenv("VERTEX_LOCATION", "us-central1")
-        
-        if not project:
-            # Try to detect from metadata server
-            try:
-                import requests
-                response = requests.get(
-                    "http://metadata.google.internal/computeMetadata/v1/project/project-id",
-                    headers={"Metadata-Flavor": "Google"},
-                    timeout=1
-                )
-                if response.status_code == 200:
-                    project = response.text
-            except Exception:
-                pass
-        
-        if not project:
-            return JSONResponse(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                content={"error": "Could not determine GCP project"}
-            )
-        
-        vertex_init(project=project, location=location)
-        
-        # List of known Gemini models to check (most recent first)
-        known_models = [
-            "gemini-2.0-flash",
-            "gemini-1.5-pro",
-            "gemini-1.5-flash",
-            "gemini-1.5-flash-exp",
-            "gemini-pro",
-        ]
-        
-        available_models = []
-        for model_name in known_models:
-            try:
-                # Try to initialize the model to check if it's available
-                model = GenerativeModel(model_name)
-                # If no error, model is available
-                available_models.append(model_name)
-                if len(available_models) >= 3:  # Get top 3
-                    break
-            except Exception:
-                # Model not available, skip
-                continue
-        
-        if not available_models:
-            # Fallback to default if none found
-            available_models = [GEMINI_MODEL]
-        
-        return JSONResponse(
-            status_code=status.HTTP_200_OK,
-            content={"models": available_models}
-        )
-    except Exception as e:
-        logger.error(f"Error fetching models: {str(e)}")
-        # Return default models as fallback
-        return JSONResponse(
-            status_code=status.HTTP_200_OK,
-            content={"models": ["gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"]}
-        )
 
 
 @router.post("/chat")
@@ -125,11 +52,10 @@ async def chat(req: ChatRequest, request: Request):
             detail="Prompt cannot be empty"
         )
     
-    model_used = req.model or "default"
-    logger.info(f"[API_REQUEST] {timestamp} | IP: {client_ip} | POST /api/chat | Prompt: {req.prompt[:100]} | Model: {model_used} | Headers: {headers}")
+    logger.info(f"[API_REQUEST] {timestamp} | IP: {client_ip} | POST /api/chat | Prompt: {req.prompt[:100]} | Headers: {headers}")
     
     try:
-        result = await run_agent(req.prompt, model=req.model)
+        result = await run_agent(req.prompt)
         
         # Check if result indicates an error
         if result.get("error"):
