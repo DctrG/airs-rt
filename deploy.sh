@@ -135,7 +135,9 @@ REQUIRED_APIS=(
 
 for API in "${REQUIRED_APIS[@]}"; do
     API_NAME=$(echo $API | cut -d'.' -f1)
-    if gcloud services list --enabled --project=$PROJECT_ID --filter="name:$API" --format="value(name)" | grep -q "^$API$"; then
+    # Check if API is enabled (output format is: projects/PROJECT_NUMBER/services/API_NAME)
+    ENABLED_CHECK=$(gcloud services list --enabled --project=$PROJECT_ID --filter="name:$API" --format="value(name)" 2>/dev/null | grep -o "/services/$API$" || echo "")
+    if [ -n "$ENABLED_CHECK" ]; then
         echo "✓ $API_NAME API is enabled"
     else
         echo "⚠️  $API_NAME API is not enabled. Enabling now..."
