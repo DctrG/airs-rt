@@ -152,20 +152,27 @@ echo ""
 
 # Get the default Compute Engine service account email
 # Format: PROJECT_NUMBER-compute@developer.gserviceaccount.com
+echo "Step 0b: Determining service account..."
 PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format="value(projectNumber)" 2>/dev/null || echo "")
 if [ -n "$PROJECT_NUMBER" ]; then
     COMPUTE_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+    echo "  Project number: $PROJECT_NUMBER"
+    echo "  Default service account: $COMPUTE_SA"
 else
+    echo "  ⚠️  Could not get project number, trying alternative method..."
     # Fallback: try to get from IAM service accounts list
     COMPUTE_SA=$(gcloud iam service-accounts list --project=$PROJECT_ID --filter="displayName:Compute Engine default service account" --format="value(email)" --limit=1 2>/dev/null || echo "")
-    if [ -z "$COMPUTE_SA" ]; then
+    if [ -n "$COMPUTE_SA" ]; then
+        echo "  Found service account via IAM list: $COMPUTE_SA"
+    else
         # Last resort: use project number format (will be validated when granting permission)
-        echo "⚠️  Could not determine default service account, will use VM's service account"
+        echo "  ⚠️  Could not determine default service account, will use VM's service account"
         COMPUTE_SA=""
     fi
 fi
+echo ""
 
-echo "Step 0b: Checking service account permissions..."
+echo "Checking service account permissions..."
 
 # Check if VM exists to determine which service account to check
 if gcloud compute instances describe $VM_NAME --zone=$ZONE --project=$PROJECT_ID &>/dev/null 2>&1; then
