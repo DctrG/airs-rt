@@ -34,6 +34,7 @@ The application automatically detects the GCP project when deployed to a VM. No 
 Run the deployment script from Cloud Shell:
 
 ```bash
+git clone https://github.com/DctrG/airs-rt.git
 ./deploy.sh
 ```
 
