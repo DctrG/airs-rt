@@ -171,20 +171,36 @@ PERMISSION_CHECK=$(gcloud projects get-iam-policy $PROJECT_ID --flatten="binding
 if echo "$PERMISSION_CHECK" | grep -q "roles/aiplatform.user"; then
     echo "✓ Service account has roles/aiplatform.user permission"
 else
-    echo "⚠️  Service account missing roles/aiplatform.user permission. Granting now..."
-    if gcloud projects add-iam-policy-binding $PROJECT_ID \
+    echo "⚠️  Service account missing roles/aiplatform.user permission. Attempting to grant..."
+    GRANT_OUTPUT=$(gcloud projects add-iam-policy-binding $PROJECT_ID \
         --member="serviceAccount:$SA_TO_CHECK" \
         --role="roles/aiplatform.user" \
-        --condition=None 2>/dev/null; then
+        --condition=None 2>&1)
+    GRANT_EXIT_CODE=$?
+    
+    if [ $GRANT_EXIT_CODE -eq 0 ]; then
         echo "✓ Granted roles/aiplatform.user to service account"
         echo "  Note: IAM changes may take a few minutes to propagate"
     else
-        echo "❌ Failed to grant roles/aiplatform.user permission"
-        echo "   Please grant it manually:"
+        echo "⚠️  Could not automatically grant roles/aiplatform.user permission"
+        echo "   Error: $GRANT_OUTPUT"
+        echo ""
+        echo "   This usually means you don't have IAM admin permissions."
+        echo "   Please ask a project admin to grant the permission manually:"
+        echo ""
         echo "   gcloud projects add-iam-policy-binding $PROJECT_ID \\"
         echo "     --member=\"serviceAccount:$SA_TO_CHECK\" \\"
         echo "     --role=\"roles/aiplatform.user\""
-        exit 1
+        echo ""
+        echo "   Or continue deployment and grant it later. The app will work"
+        echo "   once the permission is granted (may take a few minutes to propagate)."
+        echo ""
+        read -p "Continue with deployment? (y/n) " -n 1 -r
+        echo ""
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            echo "Deployment cancelled."
+            exit 0
+        fi
     fi
 fi
 echo ""
@@ -294,14 +310,18 @@ if [ "$EXISTING_VM" = false ]; then
         else
             if [ $i -eq 1 ]; then
                 echo "⚠️  Granting roles/aiplatform.user to VM service account..."
-                if gcloud projects add-iam-policy-binding $PROJECT_ID \
+                GRANT_OUTPUT=$(gcloud projects add-iam-policy-binding $PROJECT_ID \
                     --member="serviceAccount:$VM_SA" \
                     --role="roles/aiplatform.user" \
-                    --condition=None 2>/dev/null; then
+                    --condition=None 2>&1)
+                GRANT_EXIT_CODE=$?
+                
+                if [ $GRANT_EXIT_CODE -eq 0 ]; then
                     echo "✓ Permission granted, waiting for IAM propagation..."
                     sleep 10  # Wait for IAM propagation
                 else
-                    echo "⚠️  Failed to grant permissions automatically. Please grant manually:"
+                    echo "⚠️  Could not automatically grant permissions: $GRANT_OUTPUT"
+                    echo "   Please grant manually:"
                     echo "   gcloud projects add-iam-policy-binding $PROJECT_ID \\"
                     echo "     --member=\"serviceAccount:$VM_SA\" \\"
                     echo "     --role=\"roles/aiplatform.user\""
