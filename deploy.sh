@@ -135,6 +135,67 @@ fi
 export CLOUDSDK_CORE_PROJECT=$PROJECT_ID
 gcloud config set project $PROJECT_ID --quiet
 
+# Check and enable required APIs
+echo "Step 0: Checking required APIs..."
+REQUIRED_APIS=(
+    "compute.googleapis.com"
+    "aiplatform.googleapis.com"
+)
+
+for API in "${REQUIRED_APIS[@]}"; do
+    API_NAME=$(echo $API | cut -d'.' -f1)
+    if gcloud services list --enabled --project=$PROJECT_ID --filter="name:$API" --format="value(name)" | grep -q "^$API$"; then
+        echo "✓ $API_NAME API is enabled"
+    else
+        echo "⚠️  $API_NAME API is not enabled. Enabling now..."
+        if gcloud services enable $API --project=$PROJECT_ID; then
+            echo "✓ $API_NAME API enabled"
+        else
+            echo "❌ Failed to enable $API_NAME API"
+            echo "   Please enable it manually: gcloud services enable $API --project=$PROJECT_ID"
+            exit 1
+        fi
+    fi
+done
+echo ""
+
+# Get the default Compute Engine service account email
+COMPUTE_SA="${PROJECT_ID}@${PROJECT_ID}.iam.gserviceaccount.com"
+echo "Step 0b: Checking service account permissions..."
+echo "  Service account: $COMPUTE_SA"
+
+# Check if VM exists to determine which service account to check
+if gcloud compute instances describe $VM_NAME --zone=$ZONE --project=$PROJECT_ID &>/dev/null 2>&1; then
+    # VM exists, get its actual service account
+    VM_SA=$(gcloud compute instances describe $VM_NAME --zone=$ZONE --project=$PROJECT_ID --format="get(serviceAccounts[0].email)" 2>/dev/null || echo "$COMPUTE_SA")
+    echo "  Using VM's service account: $VM_SA"
+    SA_TO_CHECK="$VM_SA"
+else
+    # VM doesn't exist yet, check default service account
+    SA_TO_CHECK="$COMPUTE_SA"
+fi
+
+# Check if service account has aiplatform.user role
+if gcloud projects get-iam-policy $PROJECT_ID --flatten="bindings[].members" --filter="bindings.members:serviceAccount:$SA_TO_CHECK AND bindings.role:roles/aiplatform.user" --format="value(bindings.role)" | grep -q "roles/aiplatform.user"; then
+    echo "✓ Service account has roles/aiplatform.user permission"
+else
+    echo "⚠️  Service account missing roles/aiplatform.user permission. Granting now..."
+    if gcloud projects add-iam-policy-binding $PROJECT_ID \
+        --member="serviceAccount:$SA_TO_CHECK" \
+        --role="roles/aiplatform.user" \
+        --condition=None 2>/dev/null; then
+        echo "✓ Granted roles/aiplatform.user to service account"
+    else
+        echo "❌ Failed to grant roles/aiplatform.user permission"
+        echo "   Please grant it manually:"
+        echo "   gcloud projects add-iam-policy-binding $PROJECT_ID \\"
+        echo "     --member=\"serviceAccount:$SA_TO_CHECK\" \\"
+        echo "     --role=\"roles/aiplatform.user\""
+        exit 1
+    fi
+fi
+echo ""
+
 echo "=========================================="
 echo "Automated Debian VM Deployment"
 echo "=========================================="
@@ -223,6 +284,27 @@ if [ "$EXISTING_VM" = false ]; then
         --project=$PROJECT_ID
     
     echo "✓ VM created"
+    echo ""
+    
+    # Verify service account permissions for the newly created VM
+    echo "Verifying service account permissions..."
+    VM_SA=$(gcloud compute instances describe $VM_NAME --zone=$ZONE --project=$PROJECT_ID --format="get(serviceAccounts[0].email)" 2>/dev/null || echo "$COMPUTE_SA")
+    if gcloud projects get-iam-policy $PROJECT_ID --flatten="bindings[].members" --filter="bindings.members:serviceAccount:$VM_SA AND bindings.role:roles/aiplatform.user" --format="value(bindings.role)" | grep -q "roles/aiplatform.user"; then
+        echo "✓ VM service account has required permissions"
+    else
+        echo "⚠️  Granting roles/aiplatform.user to VM service account..."
+        if gcloud projects add-iam-policy-binding $PROJECT_ID \
+            --member="serviceAccount:$VM_SA" \
+            --role="roles/aiplatform.user" \
+            --condition=None 2>/dev/null; then
+            echo "✓ Permissions granted"
+        else
+            echo "⚠️  Failed to grant permissions automatically. Please grant manually:"
+            echo "   gcloud projects add-iam-policy-binding $PROJECT_ID \\"
+            echo "     --member=\"serviceAccount:$VM_SA\" \\"
+            echo "     --role=\"roles/aiplatform.user\""
+        fi
+    fi
     echo ""
     
     # Wait for VM to be ready
