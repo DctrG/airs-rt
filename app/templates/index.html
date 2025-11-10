@@ -10,18 +10,55 @@
     .container { max-width: 820px; margin: auto; }
     textarea { width: 100%; height: 140px; padding: 12px; font-size: 16px; }
     button { padding: 10px 14px; font-size: 16px; cursor: pointer; }
+    select { padding: 10px 14px; font-size: 16px; }
     pre { background: #f6f8fa; padding: 12px; white-space: pre-wrap; word-wrap: break-word; }
     .row { display: flex; gap: 8px; align-items: center; }
     .row > * { flex: 1; }
     .row > button { flex: 0; }
+    .row > select { flex: 0; min-width: 180px; }
+    .model-selector { margin-bottom: 12px; }
+    .model-selector label { margin-right: 8px; font-weight: 500; }
   </style>
   <script>
+    let availableModels = [];
+    let selectedModel = null;
+
+    // Fetch available models on page load
+    async function loadModels() {
+      try {
+        const res = await fetch('/api/models', {
+          credentials: 'include'
+        });
+        if (res.ok) {
+          const data = await res.json();
+          availableModels = data.models || [];
+          populateModelDropdown();
+        }
+      } catch (e) {
+        console.error('Failed to load models:', e);
+        // Use default models as fallback
+        availableModels = ['gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'];
+        populateModelDropdown();
+      }
+    }
+
+    function populateModelDropdown() {
+      const select = document.getElementById('modelSelect');
+      select.innerHTML = '';
+      availableModels.forEach(model => {
+        const option = document.createElement('option');
+        option.value = model;
+        option.textContent = model;
+        select.appendChild(option);
+      });
+      // Set first model as default
+      if (availableModels.length > 0) {
+        selectedModel = availableModels[0];
+      }
+    }
+
     // Get auth token using gcloud auth (for domain-restricted access)
-    // This works when user is logged into Google with @paloaltonetworks.com account
     async function getAuthToken() {
-      // Try to get token from gcloud CLI (if available)
-      // For browser, we rely on the user being logged into Google
-      // The domain-restricted IAM policy allows @paloaltonetworks.com users
       return null; // Browser will use cookies/session if user is logged in
     }
 
@@ -33,18 +70,22 @@
       try {
         const headers = { 'Content-Type': 'application/json' };
         
-        // Try to get auth token if available (for programmatic access)
-        // For browser, domain-restricted sharing should work if user is logged in
         const token = await getAuthToken();
         if (token) {
           headers['Authorization'] = `Bearer ${token}`;
         }
 
+        const selectedModel = document.getElementById('modelSelect').value;
+        const body = { prompt };
+        if (selectedModel) {
+          body.model = selectedModel;
+        }
+
         const res = await fetch('/api/chat', { 
           method: 'POST', 
           headers: headers,
-          credentials: 'include', // Include cookies for auth
-          body: JSON.stringify({ prompt }) 
+          credentials: 'include',
+          body: JSON.stringify(body) 
         });
         
         if (!res.ok) {
@@ -67,12 +108,21 @@
         btn.disabled = false; btn.textContent = 'Ask';
       }
     }
+
+    // Load models when page loads
+    window.addEventListener('DOMContentLoaded', loadModels);
   </script>
   </head>
   <body>
     <div class="container">
       <h1>Gemini Agent</h1>
       <p>Ask questions that might require tools like web search, URL fetching, or calculations.</p>
+      <div class="model-selector">
+        <label for="modelSelect">Model:</label>
+        <select id="modelSelect">
+          <option>Loading models...</option>
+        </select>
+      </div>
       <div class="row">
         <textarea id="prompt" placeholder="e.g., Find the latest Gemini API updates and summarize them."></textarea>
         <button id="sendBtn" onclick="sendPrompt()">Ask</button>
@@ -84,5 +134,3 @@
     </div>
   </body>
 </html>
-
-

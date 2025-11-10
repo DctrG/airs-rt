@@ -13,6 +13,9 @@ logger.setLevel(logging.INFO)
 # For Vertex AI, may need to use gemini-1.5-pro if 2.0-flash not available
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 
+# Export for use in API routes
+__all__ = ["run_agent", "GEMINI_MODEL"]
+
 
 def _use_vertex_mode() -> bool:
     # Use Vertex AI when in GCP environment (uses Application Default Credentials)
@@ -55,17 +58,17 @@ def _vertex_build_tools():
     return [Tool(function_declarations=decls)]
 
 
-def _google_genai_model():
+def _google_genai_model(model_name: str = None):
     import google.generativeai as genai
 
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise RuntimeError("Missing GEMINI_API_KEY. Set it in environment or use Vertex AI in GCP.")
     genai.configure(api_key=api_key)
-    return genai.GenerativeModel(model_name=GEMINI_MODEL)
+    return genai.GenerativeModel(model_name=model_name or GEMINI_MODEL)
 
 
-def _vertex_model():
+def _vertex_model(model_name: str = None):
     from vertexai import init as vertex_init
     from vertexai.generative_models import GenerativeModel
 
@@ -75,7 +78,7 @@ def _vertex_model():
         raise RuntimeError("Vertex mode requires GOOGLE_CLOUD_PROJECT env var")
     vertex_init(project=project, location=location)
     
-    model_name = GEMINI_MODEL
+    model_name = model_name or GEMINI_MODEL
     
     # Try the requested model first
     try:
@@ -111,10 +114,12 @@ def _extract_function_calls(resp):
     return calls
 
 
-async def run_agent(user_prompt: str):
+async def run_agent(user_prompt: str, model: str = None):
     try:
         vertex_mode = _use_vertex_mode()
-        model = _vertex_model() if vertex_mode else _google_genai_model()
+        # Use provided model or default
+        model_name = model or GEMINI_MODEL
+        model = _vertex_model(model_name) if vertex_mode else _google_genai_model(model_name)
         tools = _vertex_build_tools() if vertex_mode else [{"function_declarations": registry.tool_declarations()}]
     except Exception as e:
         return {"text": f"Error initializing model: {str(e)}", "tools": []}
