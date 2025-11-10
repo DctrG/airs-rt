@@ -27,7 +27,7 @@ The application automatically detects the GCP project when deployed to a VM. No 
 
 ### Prerequisites
 
-- GCP project with billing enabled
+- GCP project
 
 ### Deploy to GCP VM
 
